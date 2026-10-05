@@ -1,0 +1,42 @@
+#!/sbin/openrc-run
+
+description="HardPass USB ethernet gadget (ECM/RNDIS)"
+
+# Deliberately no "need localmount" -- configfs (/sys/kernel/config) is
+# kernel-auto-mounted, not an fstab/real-disk mount, so it's available
+# as soon as the kernel itself has initialized, well before boot-
+# runlevel services run. Moved to the sysinit runlevel (see
+# /etc/runlevels/sysinit/) specifically to close the real, confirmed
+# race window: FreeBSD (and likely other hosts) begin USB enumeration
+# attempts as soon as they see electrical/VBUS activity, which can
+# happen before this gadget's software descriptors are configured if
+# this service runs too late in boot -- confirmed via repeated,
+# reproducible `USB_ERR_TIMEOUT`/`USB_ERR_IOERROR` on FreeBSD's side
+# when the cable was connected from a cold power-on.
+
+depend() {
+	after hwdrivers modules
+	before net
+}
+
+start() {
+	ebegin "Starting HardPass USB gadget"
+	local attempt=1
+	local max_attempts=5
+	local result=1
+	while [ $attempt -le $max_attempts ]; do
+		if /usr/bin/hardpass-gadget; then
+			result=0
+			break
+		fi
+		attempt=$((attempt + 1))
+		[ $attempt -le $max_attempts ] && sleep 5
+	done
+	eend $result
+}
+
+stop() {
+	ebegin "Stopping HardPass USB gadget"
+	/usr/bin/hardpass-gadget -r
+	eend $?
+}

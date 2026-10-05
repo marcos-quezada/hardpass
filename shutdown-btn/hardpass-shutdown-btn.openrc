@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+
+name="hardpass-shutdown-btn"
+description="HardPass hardware shutdown button listener"
+
+command="/usr/bin/hardpass-shutdown-btn"
+command_background="yes"
+pidfile="/run/hardpass-shutdown-btn.pid"
+
+depend() {
+	need localmount
+}

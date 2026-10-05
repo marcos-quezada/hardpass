@@ -1,0 +1,25 @@
+#!/sbin/openrc-run
+
+name="vaultwarden"
+description="Vaultwarden password manager (self-built musl binary)"
+
+command="/opt/vaultwarden/vaultwarden"
+command_user="vaultwarden:nogroup"
+command_background="yes"
+pidfile="/run/vaultwarden.pid"
+directory="/opt/vaultwarden"
+
+export_env="/opt/vaultwarden/vaultwarden.env"
+
+start_pre() {
+	if [ -f "$export_env" ]; then
+		set -a
+		. "$export_env"
+		set +a
+	fi
+}
+
+depend() {
+	need net
+	after hardpass-gadget networking
+}
