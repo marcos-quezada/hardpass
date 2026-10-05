@@ -1,0 +1,118 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# hardpass-wifi-add - add a new trusted WiFi network to this device, live,
+# no SD-card removal or reboot needed
+#
+# Copyright 2026, Marcos Quezada Pérez <mquezada@auryn>
+# All rights reserved.
+#
+# Usage: hardpass-wifi-add <ssid> <psk>
+#
+# Revision history:
+# 2026-10-05  Created by new_script ver. 3.3-posix
+# ---------------------------------------------------------------------------
+
+PROGNAME="${0##*/}"
+VERSION="0.1"
+
+clean_up() { # perform pre-exit housekeeping
+    return
+}
+
+error_exit() {
+    printf '%s: %s\n' "$PROGNAME" "${1:-unknown error}" >&2
+    clean_up
+    exit 1
+}
+
+graceful_exit() {
+    clean_up
+    exit 0
+}
+
+# shellcheck disable=SC2329  # called via trap string, not directly
+signal_exit() { # handle trapped signals
+    case "$1" in
+        INT)  error_exit "program interrupted by user" ;;
+        TERM) printf '\n%s: program terminated\n' "$PROGNAME" >&2; graceful_exit ;;
+        *)    error_exit "terminating on unknown signal" ;;
+    esac
+}
+
+usage() {
+    printf '%s\n' "hardpass-wifi-add <ssid> <psk>"
+}
+
+help_message() {
+    cat <<- _EOF_
+	$PROGNAME ver. $VERSION
+	Add a new trusted WiFi network to this device, live -- no SD-card
+	removal or reboot needed. Uses wpa_cli to add and enable the
+	network immediately, then saves it to
+	/etc/wpa_supplicant/wpa_supplicant.conf so it persists across
+	reboots too.
+
+	$(usage)
+
+	Options:
+
+	  -h, --help  Display this help message and exit.
+
+	NOTE: You must be the superuser to run this script.
+
+	_EOF_
+}
+
+# trap signals
+trap "signal_exit TERM" TERM HUP
+trap "signal_exit INT"  INT
+
+# check for root UID
+if [ "$(id -u)" != "0" ]; then
+    error_exit "you must be the superuser to run this script"
+fi
+
+# parse command-line
+while [ -n "${1:-}" ]; do
+    case "$1" in
+        -h | --help) help_message; graceful_exit ;;
+        -*)
+            usage
+            error_exit "unknown option $1" ;;
+        *)
+            if [ -z "${ssid:-}" ]; then
+                ssid="$1"
+            elif [ -z "${psk:-}" ]; then
+                psk="$1"
+            else
+                usage
+                error_exit "too many arguments"
+            fi
+            ;;
+    esac
+    shift
+done
+
+[ -z "${ssid:-}" ] && { usage; error_exit "missing <ssid>"; }
+[ -z "${psk:-}" ] && { usage; error_exit "missing <psk>"; }
+
+IFACE="wlan0"
+
+net_id="$(wpa_cli -i "$IFACE" add_network)" || error_exit "wpa_cli add_network failed"
+case "$net_id" in
+    ''|*[!0-9]*) error_exit "unexpected add_network response: $net_id" ;;
+esac
+
+wpa_cli -i "$IFACE" set_network "$net_id" ssid "\"$ssid\"" >/dev/null \
+    || error_exit "failed to set ssid"
+wpa_cli -i "$IFACE" set_network "$net_id" psk "\"$psk\"" >/dev/null \
+    || error_exit "failed to set psk"
+wpa_cli -i "$IFACE" enable_network "$net_id" >/dev/null \
+    || error_exit "failed to enable network"
+wpa_cli -i "$IFACE" save_config >/dev/null \
+    || error_exit "failed to save config (connection may still work until reboot)"
+
+printf '%s: added and enabled network %s (id %s), saved to wpa_supplicant.conf\n' \
+    "$PROGNAME" "$ssid" "$net_id"
+
+graceful_exit
